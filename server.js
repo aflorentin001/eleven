@@ -64,16 +64,28 @@ app.post('/api/generate-audio', async (req, res) => {
       return res.status(400).json({ error: 'Text is required' });
     }
 
+    // Check if API key is loaded
+    if (!process.env.ELEVENLABS_API_KEY) {
+      console.error('ELEVENLABS_API_KEY is not set in environment variables');
+      return res.status(500).json({ error: 'ElevenLabs API key is not configured' });
+    }
+
     console.log('Generating audio with ElevenLabs...');
+    console.log('API Key present:', process.env.ELEVENLABS_API_KEY ? 'Yes (length: ' + process.env.ELEVENLABS_API_KEY.length + ')' : 'No');
+
+    // First, get available voices to use a valid voice ID
+    const voiceId = 'pNInz6obpgDQGcFmaJgB'; // Adam voice - widely available
 
     const response = await axios.post(
-      'https://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM',
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
       {
         text: text,
-        model_id: 'eleven_monolingual_v1',
+        model_id: 'eleven_multilingual_v2',
         voice_settings: {
           stability: 0.5,
-          similarity_boost: 0.5
+          similarity_boost: 0.75,
+          style: 0.0,
+          use_speaker_boost: true
         }
       },
       {
@@ -92,8 +104,28 @@ app.post('/api/generate-audio', async (req, res) => {
     const audioBase64 = Buffer.from(response.data).toString('base64');
     res.json({ audio: audioBase64 });
   } catch (error) {
-    console.error('Error generating audio:', error.message);
-    res.status(500).json({ error: 'Failed to generate audio: ' + error.message });
+    console.error('Error generating audio:', error.response?.data || error.message);
+    console.error('Status:', error.response?.status);
+    
+    // Parse ElevenLabs error message
+    let errorMessage = error.message;
+    if (error.response?.data) {
+      try {
+        const errorData = typeof error.response.data === 'string' 
+          ? JSON.parse(error.response.data) 
+          : error.response.data;
+        
+        if (errorData.detail?.status === 'quota_exceeded') {
+          errorMessage = 'ElevenLabs quota exceeded. Please upgrade your plan or wait until next month for quota reset.';
+        } else if (errorData.detail?.message) {
+          errorMessage = errorData.detail.message;
+        }
+      } catch (e) {
+        // Keep original error message
+      }
+    }
+    
+    res.status(500).json({ error: 'Failed to generate audio: ' + errorMessage });
   }
 });
 
